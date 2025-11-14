@@ -1,6 +1,10 @@
 on:
   workflow_call:
     inputs:
+      server-ip:
+        description: "IP publica del servidor"
+        required: true
+        type: string
       server-user:
         description: "SSH host (user@ip)"
         required: false
@@ -15,16 +19,14 @@ on:
         required: false
         default: 'src/ migrations/ seeders/ index.ts app.ts drizzle.config.prod.ts package.json tsconfig.json Dockerfile docker-compose.yml'
     secrets:
-      server-ip:
-        description: "IP publica del servidor"
-        required: true
-        type: string
       ssh-private-key:
         description: "Clave privada SSH"
         required: true
+        type: string
       env-file-content:
         description: ".env completo"
         required: true
+        type: string
 
 jobs:
   deploy:
