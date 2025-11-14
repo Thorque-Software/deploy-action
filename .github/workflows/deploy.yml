@@ -85,6 +85,10 @@ jobs:
             docker compose run back npm run db:prod:migrate && \
             docker compose up --remove-orphans -d"
 
+  healthcheck:
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    steps:
       - name: Health Check
         env:
           HEALTHCHECK_URL: ${{ inputs.server-ip }}/api/v1/eso
