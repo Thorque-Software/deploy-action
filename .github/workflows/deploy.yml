@@ -82,12 +82,8 @@ jobs:
 
             docker compose down && \
             docker compose build && \
-          
-          if [ '${{ inputs.run-migrations }}' = 'true' ]; then
-            ${{ inputs.migration-command }}
-          fi
-          
-          docker compose up --remove-orphans -d"
+            docker compose run back npm run db:prod:migrate && \
+            docker compose up --remove-orphans -d"
 
       - name: Health Check
         env:
