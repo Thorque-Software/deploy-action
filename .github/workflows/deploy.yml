@@ -60,7 +60,7 @@ jobs:
 
       - name: Prepare server directory
         run: |
-          ssh -o StrictHostKeyChecking=no ${{ inputs.server-ip }} << ENDSSH
+          ssh -o StrictHostKeyChecking=no ${{ inputs.server-user }}@${{ inputs.server-ip }} << ENDSSH
             mkdir -p ${{ inputs.deploy-path }}
             rm -rf ${{ inputs.deploy-path }}/*
             ENDSSH
@@ -69,7 +69,7 @@ jobs:
         env:
           ENV_CONTENT: ${{ secrets.env-file-content }}
         run: |
-          ssh -o StrictHostKeyChecking=no ${{ inputs.server-ip }}
+          ssh -o StrictHostKeyChecking=no ${{ inputs.server-user }}@${{ inputs.server-ip }}
             echo '$ENV_CONTENT' > ${{ inputs.deploy-path }}/.env
 
       - name: Upload deployment package
@@ -78,7 +78,7 @@ jobs:
 
       - name: Deploy with Docker
         run: |
-          ssh -o StrictHostKeyChecking=no ${{ inputs.server-ip }} >> ENDSSH
+          ssh -o StrictHostKeyChecking=no ${{ inputs.server-ip }} << ENDSSH
             cd ${{ inputs.deploy-path }}
             tar -xzf deployment.tar.gz --strip-components=1
             rm -f deployment.tar.gz
