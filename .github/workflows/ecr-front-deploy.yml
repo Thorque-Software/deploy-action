@@ -57,11 +57,6 @@ on:
         default: "docker-compose.yml"
         required: false
         type: string
-      extra-files:
-        description: "Archivos/carpetas adicionales a transferir vía SCP (separados por coma, ej: 'nginx/,config/')"
-        default: ""
-        required: false
-        type: string
       service-name:
         description: "Nombre del servicio frontend en docker-compose"
         default: "front"
@@ -159,29 +154,6 @@ jobs:
             -t $ECR_REGISTRY/$ECR_REPOSITORY:${{ inputs.image-tag }} \
             -f ${{ inputs.dockerfile }} \
             --push ${{ inputs.build-context }}
-
-      - name: Transferir docker-compose a EC2
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ inputs.EC2_HOST }}
-          username: ${{ inputs.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          source: "${{ inputs.COMPOSE_FILE }}"
-          target: ${{ inputs.DEPLOY_PATH }}
-          strip_components: 0
-          overwrite: true
-
-      - name: Transferir archivos adicionales a EC2
-        if: inputs.extra-files != ''
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ inputs.EC2_HOST }}
-          username: ${{ inputs.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          source: "${{ inputs.extra-files }}"
-          target: ${{ inputs.DEPLOY_PATH }}
-          strip_components: 0
-          overwrite: true
 
       - name: Desplegar frontend en EC2 vía SSH
         uses: appleboy/ssh-action@v1.0.3
