@@ -1,0 +1,83 @@
+# Ejemplo de uso: ecr-front-deploy.yml
+#
+# Workflow para deploys de FRONTEND Next.js en EC2 con imágenes en Amazon ECR.
+#
+# Estrategia de deploy:
+#   1. Build de la imagen con BuildKit, caché en ECR y build args de Next.js
+#   2. Transferencia del docker-compose al servidor vía SCP
+#   3. SSH al servidor: pull de la imagen y reinicio SOLO del servicio front
+#      (sin bajar el backend ni otros servicios del compose)
+#   4. Healthcheck HTTP opcional
+#
+# Por qué "rm -sf + up <service>" en lugar de "compose down":
+#   El frontend comparte servidor con el backend. Bajar toda la stack
+#   cortaría el servicio mientras se levanta el nuevo contenedor.
+#
+# Secrets requeridos en el repositorio:
+#   - AWS_ACCESS_KEY_ID       → clave de acceso AWS
+#   - AWS_SECRET_ACCESS_KEY   → clave secreta AWS
+#   - EC2_SSH_PRIVATE_KEY     → clave privada SSH del servidor
+#
+# Variables (vars) requeridas:
+#   - SERVER_HOST             → IP pública o dominio del servidor EC2
+#   - API_URL                 → URL de la API consumida por el frontend
+
+name: Deploy Frontend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  # --- Caso básico: Next.js con una variable pública ---
+  deploy:
+    uses: Thorque/actions/.github/workflows/ecr-front-deploy.yml@main
+    with:
+      ECR_REPOSITORY: mi-proyecto-front
+      EC2_HOST: ${{ vars.SERVER_HOST }}
+      EC2_USER: ubuntu
+      DEPLOY_PATH: /home/ubuntu/mi-proyecto
+      COMPOSE_FILE: docker-compose.prod.yml
+      service-name: front
+      build-args: "NEXT_PUBLIC_API_URL=${{ vars.API_URL }}"
+      healthcheck-enabled: true
+      healthcheck-url: "https://${{ vars.SERVER_HOST }}"
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+
+---
+# --- Caso avanzado: múltiples build args y archivos extra (ej: config de nginx) ---
+#
+# name: Deploy Frontend (completo)
+#
+# on:
+#   push:
+#     branches: [main]
+#
+# jobs:
+#   deploy:
+#     uses: Thorque/actions/.github/workflows/ecr-front-deploy.yml@main
+#     with:
+#       ECR_REPOSITORY: mi-proyecto-front
+#       AWS_REGION: us-east-1
+#       EC2_HOST: ${{ vars.SERVER_HOST }}
+#       DEPLOY_PATH: /home/ubuntu/mi-proyecto
+#       COMPOSE_FILE: docker-compose.prod.yml
+#       service-name: front
+#       extra-files: nginx/
+#       build-args: >-
+#         NEXT_PUBLIC_API_URL=${{ vars.API_URL }},
+#         NEXT_PUBLIC_APP_NAME=Mi App,
+#         NEXT_PUBLIC_MAPS_KEY=${{ vars.MAPS_KEY }}
+#       healthcheck-enabled: true
+#       healthcheck-url: "https://mi-app.com"
+#       healthcheck-retries: 15
+#       prune-images: true
+#     secrets:
+#       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#       EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}

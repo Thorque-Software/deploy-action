@@ -1,0 +1,86 @@
+# Ejemplo de uso: docker-ssh-deploy.yml
+#
+# Workflow para deploys de BACKEND sin Amazon ECR.
+# La imagen se construye en el runner de GitHub, se exporta como .tar
+# y se transfiere al servidor vía SCP.
+#
+# Cuándo usarlo (en lugar de ecr-deploy.yml):
+#   - El servidor no tiene acceso a internet (no puede hacer pull de ECR)
+#   - No se quiere pagar por ECR o no se tiene cuenta AWS
+#   - Proyectos pequeños donde la transferencia del .tar es aceptable
+#
+# Desventajas vs ECR:
+#   - El .tar puede ser grande (varios cientos de MB), la transferencia tarda más
+#   - No hay caché entre builds por defecto (aunque se usa caché local en el runner)
+#
+# Secrets requeridos en el repositorio:
+#   - SSH_PRIVATE_KEY     → clave privada SSH del servidor
+#   - ENV_FILE_CONTENT    → contenido completo del archivo .env
+#
+# Variables (vars) requeridas:
+#   - SERVER_HOST         → IP pública o dominio del servidor
+
+name: Deploy Backend (sin ECR)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  # --- Caso básico: Node.js API con migraciones ---
+  deploy:
+    uses: Thorque/actions/.github/workflows/docker-ssh-deploy.yml@main
+    with:
+      image-name: mi-proyecto-back
+      server-host: ${{ vars.SERVER_HOST }}
+      server-user: ubuntu
+      deploy-path: /home/ubuntu/mi-proyecto
+      compose-file: docker-compose.prod.yml
+      service-name: back
+      run-migrations: true
+      migration-command: npm run migrate
+      healthcheck-enabled: true
+      healthcheck-endpoint: api/v1/health
+      healthcheck-expected-body: '{"status":"ok"}'
+    secrets:
+      ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      env-file-content: ${{ secrets.ENV_FILE_CONTENT }}
+
+---
+# --- Caso avanzado: con seeders, nginx y scripts custom ---
+#
+# name: Deploy Backend (completo, sin ECR)
+#
+# on:
+#   push:
+#     branches: [main]
+#
+# jobs:
+#   deploy:
+#     uses: Thorque/actions/.github/workflows/docker-ssh-deploy.yml@main
+#     with:
+#       image-name: mi-proyecto-back
+#       image-tag: ${{ github.sha }}
+#       dockerfile: Dockerfile.prod
+#       server-host: ${{ vars.SERVER_HOST }}
+#       deploy-path: /home/ubuntu/mi-proyecto
+#       compose-file: docker-compose.prod.yml
+#       service-name: api
+#       extra-files: nginx/,scripts/
+#
+#       run-migrations: true
+#       migration-command: npx drizzle-kit migrate
+#       run-seeders: false
+#
+#       pre-deploy-script: "docker compose -f docker-compose.prod.yml stop nginx"
+#       post-deploy-script: "docker compose -f docker-compose.prod.yml up -d nginx"
+#
+#       healthcheck-enabled: true
+#       healthcheck-endpoint: api/v1/health
+#       healthcheck-retries: 20
+#       prune-images: true
+#     secrets:
+#       ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+#       env-file-content: ${{ secrets.ENV_FILE_CONTENT }}

@@ -1,0 +1,56 @@
+# Ejemplo de uso: deploy.yml
+#
+# ADVERTENCIA: Este es el workflow legacy de deploy.
+# Para proyectos nuevos se recomienda usar ecr-deploy.yml o docker-ssh-deploy.yml.
+#
+# Estrategia de deploy:
+#   1. Empaqueta archivos del repositorio en un .tar.gz
+#   2. Los sube al servidor vía SCP
+#   3. El Docker build ocurre en el servidor (no en el runner de GitHub)
+#   4. Corre migraciones y levanta los contenedores
+#
+# Cuándo podría tener sentido usarlo:
+#   - El servidor tiene mucha RAM/CPU y se prefiere buildear allí
+#   - Se quiere evitar transferir imágenes grandes (solo se transfieren fuentes)
+#
+# Desventajas:
+#   - El servidor necesita tener Docker instalado y recursos para buildear
+#   - Si el build falla en el servidor, el deploy queda a medias
+#   - No hay caché de capas entre builds
+#
+# Secrets requeridos en el repositorio:
+#   - SSH_PRIVATE_KEY     → clave privada SSH del servidor
+#   - ENV_FILE_CONTENT    → contenido completo del archivo .env
+#
+# Variables (vars) requeridas:
+#   - SERVER_HOST         → IP pública o dominio del servidor
+
+name: Deploy Legacy (build en servidor)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    uses: Thorque/actions/.github/workflows/deploy.yml@main
+    with:
+      server-ip: ${{ vars.SERVER_HOST }}
+      server-user: ubuntu
+      deploy-path: /home/ubuntu/mi-proyecto
+      # Archivos a empaquetar y subir al servidor
+      deployment-files: >-
+        src/
+        migrations/
+        seeders/
+        index.ts
+        package.json
+        tsconfig.json
+        Dockerfile
+        docker-compose.yml
+      healthcheck-endpoint: api/v1/health
+    secrets:
+      ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      env-file-content: ${{ secrets.ENV_FILE_CONTENT }}

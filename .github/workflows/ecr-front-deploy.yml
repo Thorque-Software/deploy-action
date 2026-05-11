@@ -1,0 +1,251 @@
+name: ECR Frontend Deploy
+
+on:
+  workflow_call:
+    inputs:
+      # --- AWS / ECR ---
+      AWS_REGION:
+        description: "Región de AWS"
+        required: false
+        default: "sa-east-1"
+        type: string
+      ECR_REPOSITORY:
+        description: "Nombre del repositorio ECR para el frontend"
+        required: true
+        type: string
+
+      # --- Build ---
+      dockerfile:
+        description: "Nombre del Dockerfile a usar para el build"
+        default: "Dockerfile"
+        required: false
+        type: string
+      build-context:
+        description: "Contexto de build de Docker (ruta relativa)"
+        default: "."
+        required: false
+        type: string
+      image-tag:
+        description: "Tag de la imagen Docker en ECR"
+        default: "latest"
+        required: false
+        type: string
+      build-args:
+        description: "Build args de Next.js (NEXT_PUBLIC_*), separados por coma (ej: 'NEXT_PUBLIC_API_URL=https://api.example.com,NEXT_PUBLIC_APP_NAME=MyApp')"
+        default: ""
+        required: false
+        type: string
+
+      # --- EC2 / SSH ---
+      EC2_HOST:
+        description: "IP pública del servidor EC2"
+        required: true
+        type: string
+      EC2_USER:
+        description: "Usuario SSH del servidor EC2"
+        required: false
+        default: "ubuntu"
+        type: string
+      DEPLOY_PATH:
+        description: "Ruta remota de deploy en EC2 (directorio que contiene el docker-compose)"
+        required: true
+        type: string
+
+      # --- Docker Compose ---
+      COMPOSE_FILE:
+        description: "Nombre del archivo docker-compose a usar"
+        default: "docker-compose.yml"
+        required: false
+        type: string
+      extra-files:
+        description: "Archivos/carpetas adicionales a transferir vía SCP (separados por coma, ej: 'nginx/,config/')"
+        default: ""
+        required: false
+        type: string
+      service-name:
+        description: "Nombre del servicio frontend en docker-compose"
+        default: "front"
+        required: false
+        type: string
+
+      # --- Healthcheck ---
+      healthcheck-enabled:
+        description: "Habilitar el healthcheck post-deploy"
+        default: true
+        required: false
+        type: boolean
+      healthcheck-url:
+        description: "URL completa del healthcheck (ej: 'https://app.example.com')"
+        default: ""
+        required: false
+        type: string
+      healthcheck-retries:
+        description: "Número máximo de reintentos del healthcheck"
+        default: 10
+        required: false
+        type: number
+
+      # --- Limpieza ---
+      prune-images:
+        description: "Limpiar imágenes Docker antiguas en EC2 después del deploy"
+        default: true
+        required: false
+        type: boolean
+
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        description: "AWS Access Key ID con permisos sobre ECR"
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        description: "AWS Secret Access Key"
+        required: true
+      EC2_SSH_PRIVATE_KEY:
+        description: "Clave privada SSH para acceder a EC2"
+        required: true
+
+env:
+  ECR_REPOSITORY: ${{ inputs.ECR_REPOSITORY }}
+  AWS_REGION: ${{ inputs.AWS_REGION }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar credenciales de AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ inputs.AWS_REGION }}
+
+      - name: Login a Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+          buildkitd-flags: --allow-insecure-entitlement network.host
+
+      - name: Construir y subir imagen a ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          if [ -z "$ECR_REGISTRY" ]; then
+            echo "❌ Error: ECR_REGISTRY está vacío. Verifica el paso de login."
+            exit 1
+          fi
+          echo "✅ Registro ECR: $ECR_REGISTRY"
+          echo "📦 Repositorio: $ECR_REPOSITORY"
+          echo "🏷️  Tag: ${{ inputs.image-tag }}"
+
+          BUILD_ARGS_FLAGS=""
+          if [ -n "${{ inputs.build-args }}" ]; then
+            IFS=',' read -ra ARGS <<< "${{ inputs.build-args }}"
+            for arg in "${ARGS[@]}"; do
+              BUILD_ARGS_FLAGS="$BUILD_ARGS_FLAGS --build-arg $arg"
+            done
+          fi
+
+          docker buildx build \
+            --cache-from type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:cache \
+            --cache-to type=registry,mode=max,image-manifest=true,oci-mediatypes=true,ref=$ECR_REGISTRY/$ECR_REPOSITORY:cache \
+            $BUILD_ARGS_FLAGS \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:${{ inputs.image-tag }} \
+            -f ${{ inputs.dockerfile }} \
+            --push ${{ inputs.build-context }}
+
+      - name: Transferir docker-compose a EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ inputs.EC2_HOST }}
+          username: ${{ inputs.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          source: "${{ inputs.COMPOSE_FILE }}"
+          target: ${{ inputs.DEPLOY_PATH }}
+          strip_components: 0
+          overwrite: true
+
+      - name: Transferir archivos adicionales a EC2
+        if: inputs.extra-files != ''
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ inputs.EC2_HOST }}
+          username: ${{ inputs.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          source: "${{ inputs.extra-files }}"
+          target: ${{ inputs.DEPLOY_PATH }}
+          strip_components: 0
+          overwrite: true
+
+      - name: Desplegar frontend en EC2 vía SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          COMPOSE_FILE: ${{ inputs.COMPOSE_FILE }}
+          DEPLOY_PATH: ${{ inputs.DEPLOY_PATH }}
+          SERVICE_NAME: ${{ inputs.service-name }}
+          PRUNE_IMAGES: ${{ inputs.prune-images }}
+          IMAGE_TAG: ${{ inputs.image-tag }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        with:
+          host: ${{ inputs.EC2_HOST }}
+          username: ${{ inputs.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          envs: ECR_REGISTRY,ECR_REPOSITORY,COMPOSE_FILE,AWS_REGION,DEPLOY_PATH,SERVICE_NAME,PRUNE_IMAGES,IMAGE_TAG,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY
+          script: |
+            if [ -z "$ECR_REGISTRY" ]; then
+              echo "❌ Error: ECR_REGISTRY está vacío."
+              exit 1
+            fi
+            echo "✅ ECR: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+            echo "🚀 Servicio: $SERVICE_NAME"
+
+            aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+
+            docker pull $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+            cd $DEPLOY_PATH
+
+            docker compose -f $COMPOSE_FILE rm -sf $SERVICE_NAME
+
+            docker compose -f $COMPOSE_FILE up -d $SERVICE_NAME
+
+            if [ "$PRUNE_IMAGES" = "true" ]; then
+              echo "🧹 Limpiando imágenes antiguas..."
+              docker image prune -f
+            fi
+
+  healthcheck:
+    needs: [build-and-deploy]
+    if: inputs.healthcheck-enabled == true && inputs.healthcheck-url != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Health Check
+        shell: bash
+        env:
+          HEALTHCHECK_URL: ${{ inputs.healthcheck-url }}
+          MAX_RETRIES: ${{ inputs.healthcheck-retries }}
+        run: |
+          echo "🔍 Healthcheck URL: $HEALTHCHECK_URL"
+
+          for i in $(seq 1 $MAX_RETRIES); do
+            status_code=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTHCHECK_URL")
+
+            if [ "$status_code" = "200" ]; then
+              echo "✅ Frontend en línea (HTTP $status_code)"
+              exit 0
+            fi
+
+            echo "⏳ Intento $i/$MAX_RETRIES: no disponible aún (HTTP $status_code), esperando 5s..."
+            sleep 5
+          done
+
+          echo "❌ El frontend no respondió con HTTP 200 en el tiempo esperado"
+          exit 1

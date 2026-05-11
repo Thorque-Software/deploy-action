@@ -1,0 +1,93 @@
+# Ejemplo de uso: ecr-deploy.yml
+#
+# Workflow recomendado para deploys de BACKEND en EC2 con imágenes en Amazon ECR.
+#
+# Estrategia de deploy:
+#   1. Build de la imagen con BuildKit y caché en ECR
+#   2. Transferencia del docker-compose al servidor vía SCP
+#   3. SSH al servidor: pull de la imagen, migraciones y compose up
+#   4. Healthcheck HTTP opcional
+#
+# Secrets requeridos en el repositorio:
+#   - AWS_ACCESS_KEY_ID       → clave de acceso AWS
+#   - AWS_SECRET_ACCESS_KEY   → clave secreta AWS
+#   - EC2_SSH_PRIVATE_KEY     → clave privada SSH del servidor
+#   - ENV_FILE_CONTENT        → contenido completo del archivo .env
+#
+# Variables (vars) requeridas:
+#   - SERVER_HOST             → IP pública o dominio del servidor EC2
+
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  # --- Caso básico: Node.js API con migraciones ---
+  deploy:
+    uses: Thorque/actions/.github/workflows/ecr-deploy.yml@main
+    with:
+      AWS_REGION: sa-east-1
+      ECR_REPOSITORY: mi-proyecto-back
+      EC2_HOST: ${{ vars.SERVER_HOST }}
+      EC2_USER: ubuntu
+      DEPLOY_PATH: /home/ubuntu/mi-proyecto
+      COMPOSE_FILE: docker-compose.prod.yml
+      service-name: back
+      run-migrations: true
+      migration-command: npm run migrate
+      healthcheck-enabled: true
+      healthcheck-endpoint: api/v1/health
+      healthcheck-expected-body: '{"status":"ok"}'
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+      ENV_FILE_CONTENT: ${{ secrets.ENV_FILE_CONTENT }}
+
+---
+# --- Caso avanzado: con seeders, scripts custom y archivos extra ---
+#
+# name: Deploy Backend (completo)
+#
+# on:
+#   push:
+#     branches: [main]
+#
+# jobs:
+#   deploy:
+#     uses: Thorque/actions/.github/workflows/ecr-deploy.yml@main
+#     with:
+#       AWS_REGION: us-east-1
+#       ECR_REPOSITORY: mi-proyecto-back
+#       EC2_HOST: ${{ vars.SERVER_HOST }}
+#       DEPLOY_PATH: /home/ubuntu/mi-proyecto
+#       COMPOSE_FILE: docker-compose.prod.yml
+#       service-name: api
+#       extra-files: nginx/,certs/
+#
+#       # Migraciones y seeders
+#       run-migrations: true
+#       migration-command: npx drizzle-kit migrate
+#       run-seeders: true
+#       seeder-command: node dist/seeders/index.js
+#
+#       # Scripts custom en el servidor
+#       pre-deploy-script: systemctl stop nginx
+#       post-deploy-script: systemctl start nginx
+#
+#       # Healthcheck
+#       healthcheck-enabled: true
+#       healthcheck-endpoint: api/v1/health
+#       healthcheck-expected-body: '{"status":"ok"}'
+#       healthcheck-retries: 15
+#
+#       prune-images: true
+#     secrets:
+#       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#       EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+#       ENV_FILE_CONTENT: ${{ secrets.ENV_FILE_CONTENT }}

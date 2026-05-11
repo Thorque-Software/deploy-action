@@ -1,0 +1,95 @@
+# Ejemplo de uso: rsync.yml
+#
+# Workflow para deploys SIN Docker via rsync.
+# Copia archivos al servidor y ejecuta un script de post-deploy.
+#
+# Cuándo usarlo:
+#   - Proyectos sin Docker (Python, PHP, Node sin contenedor, etc.)
+#   - Proyectos donde solo se actualizan archivos estáticos o scripts
+#   - Como paso de deploy simple cuando el servidor ya tiene el entorno instalado
+#
+# El script de post-deploy puede ser:
+#   a) Un bloque inline en el campo `script`
+#   b) Un archivo del repositorio referenciado en `post-script-path`
+#
+# Secrets requeridos en el repositorio:
+#   - SSH_PRIVATE_KEY     → clave privada SSH del servidor
+#   - ENV_FILE_CONTENT    → contenido completo del archivo .env
+#
+# Variables (vars) requeridas:
+#   - SERVER_HOST         → IP pública o dominio del servidor
+#   - SERVER_USER         → usuario SSH del servidor
+
+name: Deploy via Rsync
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  # --- Caso 1: script inline (para scripts cortos) ---
+  deploy-inline:
+    uses: Thorque/actions/.github/workflows/rsync.yml@main
+    with:
+      host: ${{ vars.SERVER_HOST }}
+      user: ${{ vars.SERVER_USER }}
+      deploy-path: /home/ubuntu/mi-proyecto
+      files: src/ package.json package-lock.json
+      script: |
+        npm ci --omit=dev
+        pm2 restart mi-proyecto
+    secrets:
+      key: ${{ secrets.SSH_PRIVATE_KEY }}
+      env-file-content: ${{ secrets.ENV_FILE_CONTENT }}
+
+---
+# --- Caso 2: script en archivo del repositorio (para scripts más complejos) ---
+#
+# Requiere tener un archivo `scripts/deploy.sh` en el repositorio:
+#
+#   #!/bin/bash
+#   npm ci --omit=dev
+#   npm run build
+#   pm2 restart mi-proyecto || pm2 start dist/index.js --name mi-proyecto
+#
+# name: Deploy via Rsync (script en archivo)
+#
+# on:
+#   push:
+#     branches: [main]
+#
+# jobs:
+#   deploy:
+#     uses: Thorque/actions/.github/workflows/rsync.yml@main
+#     with:
+#       host: ${{ vars.SERVER_HOST }}
+#       user: ${{ vars.SERVER_USER }}
+#       deploy-path: /var/www/mi-proyecto
+#       files: dist/ public/ package.json package-lock.json
+#       post-script-path: scripts/deploy.sh
+#     secrets:
+#       key: ${{ secrets.SSH_PRIVATE_KEY }}
+#       env-file-content: ${{ secrets.ENV_FILE_CONTENT }}
+
+---
+# --- Caso 3: solo copiar archivos estáticos (sin script de post-deploy) ---
+#
+# name: Deploy archivos estáticos
+#
+# on:
+#   push:
+#     branches: [main]
+#
+# jobs:
+#   deploy:
+#     uses: Thorque/actions/.github/workflows/rsync.yml@main
+#     with:
+#       host: ${{ vars.SERVER_HOST }}
+#       user: ${{ vars.SERVER_USER }}
+#       deploy-path: /var/www/html
+#       files: out/ public/
+#     secrets:
+#       key: ${{ secrets.SSH_PRIVATE_KEY }}
+#       env-file-content: ${{ secrets.ENV_FILE_CONTENT }}
