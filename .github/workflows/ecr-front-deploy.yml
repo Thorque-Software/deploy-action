@@ -183,6 +183,8 @@ jobs:
 
             docker pull $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
+            # Create the directory recursivly
+            mkdir -p $DEPLOY_PATH
             cd $DEPLOY_PATH
 
             docker compose -f $COMPOSE_FILE rm -sf $SERVICE_NAME
