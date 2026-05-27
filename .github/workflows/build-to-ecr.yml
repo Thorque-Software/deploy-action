@@ -44,7 +44,7 @@ env:
   AWS_REGION: ${{ inputs.AWS_REGION }}
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -81,9 +81,18 @@ jobs:
           echo "🏷️  Tag: ${{ inputs.tag }}"
           echo "🐳 Dockerfile: ${{ inputs.dockerfile }}"
 
+          BUILD_ARGS_FLAGS=""
+          if [ -n "${{ inputs.build-args }}" ]; then
+            IFS=',' read -ra ARGS <<< "${{ inputs.build-args }}"
+            for arg in "${ARGS[@]}"; do
+              BUILD_ARGS_FLAGS="$BUILD_ARGS_FLAGS --build-arg $arg"
+            done
+          fi
+
           docker buildx build \
             --cache-from type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:cache \
             --cache-to type=registry,mode=max,image-manifest=true,oci-mediatypes=true,ref=$ECR_REGISTRY/$ECR_REPOSITORY:cache \
+            $BUILD_ARGS_FLAGS \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:${{ inputs.tag }} \
             -f ${{ inputs.dockerfile }} \
             --push \
