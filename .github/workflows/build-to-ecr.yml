@@ -30,6 +30,11 @@ on:
         default: "latest"
         required: false
         type: string
+      build-args:
+        description: "Build args separados por coma (ej: 'NEXT_PUBLIC_API_URL=https://api.example.com,NEXT_PUBLIC_APP_NAME=MyApp')"
+        default: ""
+        required: false
+        type: string
 
     secrets:
       AWS_ACCESS_KEY_ID:
